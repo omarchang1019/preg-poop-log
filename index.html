@@ -127,6 +127,14 @@
       background: #e0e0e5;
     }
 
+    .btn-text {
+      background: transparent;
+      border-radius: 999px;
+      border: 1px solid #ddd;
+      margin-top: 6px;
+      font-size: 13px;
+    }
+
     .records-header {
       display: flex;
       justify-content: space-between;
@@ -189,16 +197,21 @@
 
     .record-actions {
       text-align: right;
-      margin-top: 2px;
+      margin-top: 4px;
     }
 
     .link-btn {
       border: none;
       background: none;
-      color: #ff3b30;
+      color: #007aff;
       font-size: 12px;
       padding: 2px 4px;
       cursor: pointer;
+      margin-left: 4px;
+    }
+
+    .link-btn-danger {
+      color: #ff3b30;
     }
 
     .empty-tip {
@@ -215,6 +228,13 @@
       margin-top: 4px;
     }
 
+    .editing-tip {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #cc6600;
+      text-align: left;
+    }
+
     @media (min-width: 600px) {
       body {
         background: #e5e5ea;
@@ -228,7 +248,7 @@
 <body>
   <div class="app">
     <h1>孕期排便记录</h1>
-    <div class="subtitle">数据仅保存在本机浏览器中（localStorage） · 适合个人简单记录</div>
+    <div class="subtitle">数据仅保存在本机浏览器中 · 适合个人简单记录</div>
 
     <!-- 录入卡片 -->
     <div class="card">
@@ -283,8 +303,12 @@
           <textarea id="noteInput" placeholder="例如：今天喝水少，吃了很多肉；或服用了某种药物等"></textarea>
         </div>
 
-        <button type="submit" class="btn btn-primary">保存记录</button>
+        <button type="submit" id="submitBtn" class="btn btn-primary">保存记录</button>
         <button type="button" id="fillNowBtn" class="btn btn-secondary">用当前时间填充</button>
+        <button type="button" id="cancelEditBtn" class="btn btn-text" style="display:none;">取消编辑，恢复新增</button>
+        <div id="editingTip" class="editing-tip" style="display:none;">
+          正在编辑一条历史记录，保存后会覆盖原记录。
+        </div>
       </form>
     </div>
 
@@ -309,6 +333,7 @@
 
   <script>
     const STORAGE_KEY = 'preg_poop_logs_v1';
+    let currentEditingId = null; // 正在编辑的记录 id（为 null 表示新增）
 
     function loadLogs() {
       try {
@@ -384,20 +409,27 @@
           </div>
           ${log.note ? `<div class="record-note">${log.note}</div>` : ''}
           <div class="record-actions">
-            <button class="link-btn" data-id="${log._id}">删除</button>
+            <button class="link-btn" data-action="edit" data-id="${log._id}">编辑</button>
+            <button class="link-btn link-btn-danger" data-action="delete" data-id="${log._id}">删除</button>
           </div>
         `;
 
         container.appendChild(wrapper);
       });
 
-      // 绑定删除按钮
-      container.querySelectorAll('.link-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const id = btn.getAttribute('data-id');
+      // 事件委托处理编辑 & 删除
+      container.onclick = function (e) {
+        const btn = e.target.closest('button[data-action]');
+        if (!btn) return;
+        const id = btn.getAttribute('data-id');
+        const action = btn.getAttribute('data-action');
+
+        if (action === 'delete') {
           deleteLogById(id);
-        });
-      });
+        } else if (action === 'edit') {
+          startEditLog(id);
+        }
+      };
     }
 
     function deleteLogById(id) {
@@ -405,7 +437,57 @@
       const logs = loadLogs();
       const newLogs = logs.filter(item => item._id !== id);
       saveLogs(newLogs);
+      // 如果正在编辑的刚好是被删除的这条，也重置一下表单
+      if (currentEditingId === id) {
+        resetEditState();
+      }
       renderList();
+    }
+
+    function startEditLog(id) {
+      const logs = loadLogs();
+      const log = logs.find(item => item._id === id);
+      if (!log) return;
+
+      currentEditingId = id;
+
+      // 填充表单
+      document.getElementById('dateInput').value = log.date;
+      document.getElementById('timeInput').value = log.time;
+      document.getElementById('shapeInput').value = log.shape;
+      document.getElementById('amountInput').value = log.amount;
+      document.getElementById('feelingInput').value = log.feeling || '';
+      document.getElementById('noteInput').value = log.note || '';
+
+      // UI 状态切换为“编辑模式”
+      const submitBtn = document.getElementById('submitBtn');
+      const cancelEditBtn = document.getElementById('cancelEditBtn');
+      const editingTip = document.getElementById('editingTip');
+
+      submitBtn.textContent = '保存修改';
+      cancelEditBtn.style.display = 'inline-flex';
+      editingTip.style.display = 'block';
+
+      // 滚动到表单顶部（方便在手机上编辑）
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function resetEditState() {
+      currentEditingId = null;
+
+      const submitBtn = document.getElementById('submitBtn');
+      const cancelEditBtn = document.getElementById('cancelEditBtn');
+      const editingTip = document.getElementById('editingTip');
+
+      submitBtn.textContent = '保存记录';
+      cancelEditBtn.style.display = 'none';
+      editingTip.style.display = 'none';
+
+      // 不清空日期，其他字段清空
+      document.getElementById('shapeInput').value = '';
+      document.getElementById('amountInput').value = '';
+      document.getElementById('feelingInput').value = '';
+      document.getElementById('noteInput').value = '';
     }
 
     function initForm() {
@@ -413,6 +495,7 @@
       const dateInput = document.getElementById('dateInput');
       const timeInput = document.getElementById('timeInput');
       const fillNowBtn = document.getElementById('fillNowBtn');
+      const cancelEditBtn = document.getElementById('cancelEditBtn');
 
       // 默认填充今天日期
       const now = new Date();
@@ -426,6 +509,10 @@
         const hh = String(now.getHours()).padStart(2, '0');
         const mi = String(now.getMinutes()).padStart(2, '0');
         timeInput.value = `${hh}:${mi}`;
+      });
+
+      cancelEditBtn.addEventListener('click', () => {
+        resetEditState();
       });
 
       form.addEventListener('submit', (e) => {
@@ -444,26 +531,46 @@
         }
 
         const logs = loadLogs();
-        const newLog = {
-          _id: Date.now().toString() + Math.random().toString(16).slice(2),
-          date,
-          time,
-          shape,
-          amount,
-          feeling,
-          note,
-          createdAt: new Date().toISOString()
-        };
 
-        logs.push(newLog);
-        saveLogs(logs);
+        if (currentEditingId) {
+          // 编辑模式：更新已有记录
+          const idx = logs.findIndex(item => item._id === currentEditingId);
+          if (idx !== -1) {
+            logs[idx] = {
+              ...logs[idx],
+              date,
+              time,
+              shape,
+              amount,
+              feeling,
+              note
+            };
+          }
+          saveLogs(logs);
+          resetEditState();
+        } else {
+          // 新增模式：插入新记录
+          const newLog = {
+            _id: Date.now().toString() + Math.random().toString(16).slice(2),
+            date,
+            time,
+            shape,
+            amount,
+            feeling,
+            note,
+            createdAt: new Date().toISOString()
+          };
+          logs.push(newLog);
+          saveLogs(logs);
+
+          // 清空部分字段，保留日期
+          document.getElementById('shapeInput').value = '';
+          document.getElementById('amountInput').value = '';
+          document.getElementById('feelingInput').value = '';
+          document.getElementById('noteInput').value = '';
+        }
+
         renderList();
-
-        // 填完后清空除了日期
-        document.getElementById('shapeInput').value = '';
-        document.getElementById('amountInput').value = '';
-        document.getElementById('feelingInput').value = '';
-        document.getElementById('noteInput').value = '';
       });
 
       document.getElementById('filterDays').addEventListener('change', renderList);
