@@ -4,16 +4,15 @@
   <meta charset="UTF-8" />
   <title>孕期排便记录</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-  
+
+  <!-- 图标（按你的实际文件名来改） -->
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
-  
+
   <style>
     * {
       box-sizing: border-box;
       -webkit-tap-highlight-color: transparent;
     }
-  
-
 
     body {
       margin: 0;
@@ -240,6 +239,12 @@
       text-align: left;
     }
 
+    .backup-note {
+      font-size: 11px;
+      color: #666;
+      margin-top: 4px;
+    }
+
     @media (min-width: 600px) {
       body {
         background: #e5e5ea;
@@ -247,13 +252,16 @@
       .app {
         padding: 20px 16px 40px;
       }
+      #backupTextarea {
+        min-height: 120px;
+      }
     }
   </style>
 </head>
 <body>
   <div class="app">
     <h1>孕期排便记录</h1>
-    <div class="subtitle">数据仅保存在本机浏览器中 · 适合个人简单记录</div>
+    <div class="subtitle">数据保存在本机浏览器中 · 建议定期导出备份</div>
 
     <!-- 录入卡片 -->
     <div class="card">
@@ -317,7 +325,7 @@
       </form>
     </div>
 
-    <!-- 列表卡片 -->
+    <!-- 历史记录卡片 -->
     <div class="card">
       <div class="records-header">
         <div class="records-header-title">历史记录</div>
@@ -329,6 +337,22 @@
         </select>
       </div>
       <div id="recordList" class="record-list"></div>
+    </div>
+
+    <!-- 备份与恢复卡片 -->
+    <div class="card">
+      <div class="card-title">数据备份与恢复</div>
+      <div class="form-row">
+        <button type="button" id="exportBtn" class="btn btn-secondary">导出数据（复制备份）</button>
+      </div>
+      <div class="form-row">
+        <label for="backupTextarea">备份文本</label>
+        <textarea id="backupTextarea" placeholder="点击上面的“导出数据”会在这里生成一段可复制的备份文本；也可以在这里粘贴之前的备份，再点击下面的“从备份导入”。"></textarea>
+      </div>
+      <button type="button" id="importBtn" class="btn btn-primary">从备份文本导入（覆盖当前数据）</button>
+      <div class="backup-note">
+        导入会覆盖当前所有记录，请确保已经做好备份。建议：定期把导出文本保存到备忘录 / 云盘。
+      </div>
     </div>
 
     <div class="footer-tip">
@@ -442,7 +466,6 @@
       const logs = loadLogs();
       const newLogs = logs.filter(item => item._id !== id);
       saveLogs(newLogs);
-      // 如果正在编辑的刚好是被删除的这条，也重置一下表单
       if (currentEditingId === id) {
         resetEditState();
       }
@@ -456,7 +479,6 @@
 
       currentEditingId = id;
 
-      // 填充表单
       document.getElementById('dateInput').value = log.date;
       document.getElementById('timeInput').value = log.time;
       document.getElementById('shapeInput').value = log.shape;
@@ -464,7 +486,6 @@
       document.getElementById('feelingInput').value = log.feeling || '';
       document.getElementById('noteInput').value = log.note || '';
 
-      // UI 状态切换为“编辑模式”
       const submitBtn = document.getElementById('submitBtn');
       const cancelEditBtn = document.getElementById('cancelEditBtn');
       const editingTip = document.getElementById('editingTip');
@@ -473,7 +494,6 @@
       cancelEditBtn.style.display = 'inline-flex';
       editingTip.style.display = 'block';
 
-      // 滚动到表单顶部（方便在手机上编辑）
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
@@ -488,7 +508,6 @@
       cancelEditBtn.style.display = 'none';
       editingTip.style.display = 'none';
 
-      // 不清空日期，其他字段清空
       document.getElementById('shapeInput').value = '';
       document.getElementById('amountInput').value = '';
       document.getElementById('feelingInput').value = '';
@@ -502,7 +521,6 @@
       const fillNowBtn = document.getElementById('fillNowBtn');
       const cancelEditBtn = document.getElementById('cancelEditBtn');
 
-      // 默认填充今天日期
       const now = new Date();
       const yyyy = now.getFullYear();
       const mm = String(now.getMonth() + 1).padStart(2, '0');
@@ -538,7 +556,6 @@
         const logs = loadLogs();
 
         if (currentEditingId) {
-          // 编辑模式：更新已有记录
           const idx = logs.findIndex(item => item._id === currentEditingId);
           if (idx !== -1) {
             logs[idx] = {
@@ -554,7 +571,6 @@
           saveLogs(logs);
           resetEditState();
         } else {
-          // 新增模式：插入新记录
           const newLog = {
             _id: Date.now().toString() + Math.random().toString(16).slice(2),
             date,
@@ -568,7 +584,6 @@
           logs.push(newLog);
           saveLogs(logs);
 
-          // 清空部分字段，保留日期
           document.getElementById('shapeInput').value = '';
           document.getElementById('amountInput').value = '';
           document.getElementById('feelingInput').value = '';
@@ -581,9 +596,71 @@
       document.getElementById('filterDays').addEventListener('change', renderList);
     }
 
+    // ===== 数据导出 / 导入 =====
+    function initBackup() {
+      const exportBtn = document.getElementById('exportBtn');
+      const importBtn = document.getElementById('importBtn');
+      const textarea = document.getElementById('backupTextarea');
+
+      exportBtn.addEventListener('click', () => {
+        const logs = loadLogs();
+        if (!logs.length) {
+          alert('当前没有任何记录可以导出。');
+          textarea.value = '';
+          return;
+        }
+
+        const payload = {
+          version: 1,
+          exportedAt: new Date().toISOString(),
+          data: logs
+        };
+
+        textarea.value = JSON.stringify(payload, null, 2);
+        textarea.focus();
+        textarea.select();
+        alert('已生成备份文本，请长按选择并复制，保存到备忘录或其他地方。');
+      });
+
+      importBtn.addEventListener('click', () => {
+        const text = textarea.value.trim();
+        if (!text) {
+          alert('请先在上面的文本框中粘贴一段备份文本。');
+          return;
+        }
+
+        if (!confirm('导入备份会覆盖当前所有记录，确定继续吗？')) {
+          return;
+        }
+
+        try {
+          const parsed = JSON.parse(text);
+          let data = parsed;
+
+          if (parsed && Array.isArray(parsed.data)) {
+            data = parsed.data;
+          }
+
+          if (!Array.isArray(data)) {
+            alert('备份格式不正确：未找到有效的数据数组。');
+            return;
+          }
+
+          saveLogs(data);
+          resetEditState();
+          renderList();
+          alert('导入成功！当前数据已被备份内容覆盖。');
+        } catch (e) {
+          console.error(e);
+          alert('解析备份文本失败，请确认粘贴内容是完整的 JSON。');
+        }
+      });
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
       initForm();
       renderList();
+      initBackup();
     });
   </script>
 </body>
